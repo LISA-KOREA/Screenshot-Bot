@@ -1,6 +1,6 @@
 # Screenshot Bot 📸
 
-###### Support MP4, WEBM, MKV, AVI, MOV, WMV, PDF, DOC, DOCX
+###### SUPPORT MP4, WEBM, MKV, AVI, MOV, WMV, PDF, DOC, DOCX
 
 
 ![logo](https://graph.org/file/386a64dd9b18930f2eaa9.jpg)
