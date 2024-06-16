@@ -2,3 +2,4 @@ pyrogram
 pymupdf
 opencv-python
 tgcrypto
+numpy<2
