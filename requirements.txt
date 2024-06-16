@@ -1,0 +1,4 @@
+pyrogram
+pymupdf
+opencv-python
+tgcrypto
