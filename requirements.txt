@@ -1,4 +1,4 @@
-pyrogram
+pyrofork
 pymupdf
 opencv-python
 tgcrypto
