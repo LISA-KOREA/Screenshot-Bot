@@ -10,7 +10,6 @@ api_id = ""
 api_hash = ""
 bot_token = ""
 
-# Initialize the Pyrogram Client
 app = Client("screenshot_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
 # Function to take multiple screenshots of a document
@@ -58,7 +57,7 @@ def screenshot_video(file_path, max_frames=10):
 
 # Handler for the /start command
 @app.on_message(filters.command("start"))
-def start(client, message):
+async def start(client, message):
     buttons = [
         [
             InlineKeyboardButton("📣 Join my channel 📣", url="https://t.me/NT_BOT_CHANNEL"),
@@ -70,59 +69,56 @@ def start(client, message):
         ]
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
-    message.reply_text("Hello! I am your screenshot bot. Send me a document or video file, and I will generate screenshots for you.", reply_markup=reply_markup)
-
-
+    await message.reply_text("Hello! I am your screenshot bot. Send me a document or video file, and I will generate screenshots for you.", reply_markup=reply_markup)
 
 # Handler for the /help command
 @app.on_message(filters.command("help"))
-def help(client, message):
-    message.reply_text("Usage:\n\n"
-                       "1. Send a document (PDF, DOC, DOCX) to get screenshots of its pages.\n"
-                       "2. Send a video file (MP4, WEBM, MKV, AVI, MOV, WMV) to get screenshots from the video.\n"
-                       "3. I will process the file and upload the screenshots for you.")
+async def help(client, message):
+    await message.reply_text("Usage:\n\n"
+                             "1. Send a document (PDF, DOC, DOCX) to get screenshots of its pages.\n"
+                             "2. Send a video file (MP4, WEBM, MKV, AVI, MOV, WMV) to get screenshots from the video.\n"
+                             "3. I will process the file and upload the screenshots for you.")
 
 # Handler for file messages
 @app.on_message(filters.document | filters.video)
-def file_handler(client, message):
+async def file_handler(client, message):
     file = message.document or message.video
-    reply_message = message.reply_text("Downloading file...")
-    file_path = app.download_media(file)
+    reply_message = await message.reply_text("Downloading file...")
+    file_path = await app.download_media(file)
     
     if not file_path:
-        message.reply_text("Failed to download the file.")
+        await message.reply_text("Failed to download the file.")
         return
     
     mime_type, _ = mimetypes.guess_type(file_path)
     print(f"File MIME type: {mime_type}")
     
     if mime_type in ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
-        reply_message.edit_text("Processing document...")
+        await reply_message.edit_text("Processing document...")
         screenshots = screenshot_document(file_path)
     elif mime_type in ["video/mp4", "video/webm", "video/x-matroska", "video/avi", "video/quicktime", "video/x-msvideo", "video/x-ms-wmv"]:
-        reply_message.edit_text("Processing video...")
+        await reply_message.edit_text("Processing video...")
         screenshots = screenshot_video(file_path)
     else:
-        reply_message.edit_text(f"Unsupported file type: {mime_type}")
+        await reply_message.edit_text(f"Unsupported file type: {mime_type}")
         os.remove(file_path)
         return
 
     os.remove(file_path)
 
     if screenshots:
-        reply_message.edit_text("Uploading screenshots...")
+        await reply_message.edit_text("Uploading screenshots...")
         for screenshot_path in screenshots:
-            app.send_photo(chat_id=message.chat.id, photo=screenshot_path)
+            await app.send_photo(chat_id=message.chat.id, photo=screenshot_path)
             os.remove(screenshot_path)
-        reply_message.delete()
-        message.delete()
+        await reply_message.delete()
+        await message.delete()
     else:
-        reply_message.edit_text("Failed to process the file.")
-
+        await reply_message.edit_text("Failed to process the file.")
 
 @app.on_callback_query(filters.regex("cancel"))
-def cancel(client, callback_query):
-    callback_query.message.delete()
+async def cancel(client, callback_query):
+    await callback_query.message.delete()
 
 # Run the bot
 if __name__ == "__main__":
