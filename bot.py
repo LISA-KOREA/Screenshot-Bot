@@ -1,125 +1,185 @@
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import fitz
-import cv2
 import os
 import mimetypes
+import fitz
+import cv2
+import asyncio
+from dotenv import load_dotenv
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pymongo import MongoClient
 
-# Replace these values with your own
-api_id = ""
-api_hash = ""
-bot_token = ""
+load_dotenv()
 
-app = Client("screenshot_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+MONGO_URI = os.getenv("MONGO_URI")
 
-# Function to take multiple screenshots of a document
-def screenshot_document(file_path, max_pages=10):
+mongo = MongoClient(MONGO_URI)
+db = mongo["screenshot_bot"]
+users = db["users"]
+
+user_locks = {}
+
+app = Client(
+    "screenshot_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+@app.on_message(filters.command("setwm"))
+async def set_wm(_, message):
+    user_id = message.from_user.id
+    args = message.text.split(" ", 1)
+
+    if len(args) < 2:
+        return await message.reply("Usage: `/setwm YourWatermarkText`")
+
+    wm_text = args[1].strip()
+
+    users.update_one(
+        {"_id": user_id},
+        {"$set": {"watermark": wm_text}},
+        upsert=True
+    )
+
+    await message.reply(f"Watermark set to:\n`{wm_text}`")
+
+def get_watermark(user_id, username):
+    record = users.find_one({"_id": user_id})
+
+    if record and "watermark" in record:
+        return record["watermark"]
+
+    default_wm = f"@{username}" if username else "Screenshot Bot"
+
+    users.update_one(
+        {"_id": user_id},
+        {"$set": {"watermark": default_wm}},
+        upsert=True
+    )
+
+    return default_wm
+
+def add_watermark(image_path, text):
+    img = cv2.imread(image_path)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    size = cv2.getTextSize(text, font, 1, 2)[0]
+    x = img.shape[1] - size[0] - 25
+    y = img.shape[0] - 25
+    cv2.putText(img, text, (x, y), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.imwrite(image_path, img)
+
+async def update_progress(msg, current, total):
+    percent = int((current / total) * 100)
+    await msg.edit(f"Processing... {percent}%")
+
+def screenshot_document(file_path, max_pages):
     screenshots = []
     try:
         doc = fitz.open(file_path)
-        for page_number in range(min(doc.page_count, max_pages)):
-            page = doc.load_page(page_number)
+        pages = min(doc.page_count, max_pages)
+        for i in range(pages):
+            page = doc.load_page(i)
             pix = page.get_pixmap()
-            output_path = f"{file_path}_page_{page_number}.png"
-            pix.save(output_path)
-            screenshots.append(output_path)
+            output = f"{file_path}_page_{i+1}.png"
+            pix.save(output)
+            screenshots.append(output)
         return screenshots
-    except Exception as e:
-        print(f"Failed to process document: {e}")
+    except:
         return []
 
-# Function to take multiple screenshots of a video at regular intervals
-def screenshot_video(file_path, max_frames=10):
+def screenshot_video(file_path, max_frames):
     screenshots = []
     try:
         cap = cv2.VideoCapture(file_path)
         if not cap.isOpened():
-            raise Exception("Could not open video file")
-        
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        interval = max(1, total_frames // max_frames)
-        
-        for frame_number in range(0, total_frames, interval):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-            success, frame = cap.read()
-            if success:
-                output_path = f"{file_path}_frame_{frame_number}.png"
-                cv2.imwrite(output_path, frame)
-                screenshots.append(output_path)
-            if len(screenshots) >= max_frames:
-                break
-        
+            return []
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        interval = max(1, total // max_frames)
+        for i in range(max_frames):
+            frame = i * interval
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame)
+            ok, img = cap.read()
+            if not ok:
+                continue
+            output = f"{file_path}_frame_{i+1}.png"
+            cv2.imwrite(output, img)
+            screenshots.append(output)
         cap.release()
         return screenshots
-    except Exception as e:
-        print(f"Failed to process video: {e}")
+    except:
         return []
 
-# Handler for the /start command
 @app.on_message(filters.command("start"))
-async def start(client, message):
-    buttons = [
-        [
-            InlineKeyboardButton("📣 Join my channel 📣", url="https://t.me/NT_BOT_CHANNEL"),
-            InlineKeyboardButton("👥 Support group 👥", url="https://t.me/NT_BOTS_SUPPORT"),
-        ],
-        [
-            InlineKeyboardButton("👩‍💻 Developer 👩‍💻", url="https://t.me/LISA_FAN_LK"),
-            InlineKeyboardButton("⛔️ Cancel ⛔️", callback_data="cancel"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    await message.reply_text("Hello! I am your screenshot bot. Send me a document or video file, and I will generate screenshots for you.", reply_markup=reply_markup)
+async def start(_, message):
+    await message.reply(
+        "Send me any PDF or Video and I will generate screenshots.\n"
+        "Use /setwm to set your watermark."
+    )
 
-# Handler for the /help command
-@app.on_message(filters.command("help"))
-async def help(client, message):
-    await message.reply_text("Usage:\n\n"
-                             "1. Send a document (PDF, DOC, DOCX) to get screenshots of its pages.\n"
-                             "2. Send a video file (MP4, WEBM, MKV, AVI, MOV, WMV) to get screenshots from the video.\n"
-                             "3. I will process the file and upload the screenshots for you.")
+@app.on_callback_query(filters.regex("count_"))
+async def choose_count(_, query):
+    user_id = query.from_user.id
 
-# Handler for file messages
-@app.on_message(filters.document | filters.video)
-async def file_handler(client, message):
-    file = message.document or message.video
-    reply_message = await message.reply_text("Downloading file...")
-    file_path = await app.download_media(file)
-    
-    if not file_path:
-        await message.reply_text("Failed to download the file.")
-        return
-    
-    mime_type, _ = mimetypes.guess_type(file_path)
-    print(f"File MIME type: {mime_type}")
-    
-    if mime_type in ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
-        await reply_message.edit_text("Processing document...")
-        screenshots = screenshot_document(file_path)
-    elif mime_type in ["video/mp4", "video/webm", "video/x-matroska", "video/avi", "video/quicktime", "video/x-msvideo", "video/x-ms-wmv"]:
-        await reply_message.edit_text("Processing video...")
-        screenshots = screenshot_video(file_path)
+    if user_locks.get(user_id, False):
+        return await query.answer("Please wait, processing already running.", show_alert=True)
+
+    count = int(query.data.split("_")[1])
+    file = query.message.reply_to_message
+    file_path = await file.download()
+
+    user_locks[user_id] = True
+
+    msg = await query.message.edit("Starting... 0%")
+
+    mime, _ = mimetypes.guess_type(file_path)
+    username = query.from_user.username
+    watermark = get_watermark(user_id, username)
+
+    if mime == "application/pdf":
+        screenshots = screenshot_document(file_path, count)
+    elif mime and mime.startswith("video"):
+        screenshots = screenshot_video(file_path, count)
     else:
-        await reply_message.edit_text(f"Unsupported file type: {mime_type}")
-        os.remove(file_path)
-        return
+        user_locks[user_id] = False
+        return await msg.edit("Unsupported file.")
+
+    total = len(screenshots)
+
+    for i, img in enumerate(screenshots, start=1):
+        await update_progress(msg, i, total)
+        add_watermark(img, watermark)
+
+    await msg.edit("Uploading...")
+
+    for img in screenshots:
+        await app.send_photo(query.message.chat.id, img)
+        os.remove(img)
 
     os.remove(file_path)
+    user_locks[user_id] = False
+    await msg.delete()
 
-    if screenshots:
-        await reply_message.edit_text("Uploading screenshots...")
-        for screenshot_path in screenshots:
-            await app.send_photo(chat_id=message.chat.id, photo=screenshot_path)
-            os.remove(screenshot_path)
-        await reply_message.delete()
-        await message.delete()
-    else:
-        await reply_message.edit_text("Failed to process the file.")
+@app.on_message(filters.document | filters.video)
+async def file_handler(_, message):
+    user_id = message.from_user.id
 
-@app.on_callback_query(filters.regex("cancel"))
-async def cancel(client, callback_query):
-    await callback_query.message.delete()
+    if user_locks.get(user_id, False):
+        return await message.reply("You already have an active process.")
 
-# Run the bot
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("5", callback_data="count_5"),
+            InlineKeyboardButton("10", callback_data="count_10"),
+            InlineKeyboardButton("15", callback_data="count_15"),
+            InlineKeyboardButton("20", callback_data="count_20"),
+        ]
+    ])
+
+    await message.reply("Choose screenshot count:", reply_markup=buttons)
+
 if __name__ == "__main__":
+    print("Bot Running...")
     app.run()
