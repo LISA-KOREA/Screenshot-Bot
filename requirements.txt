@@ -1,5 +1,5 @@
 pyrofork
-pymupdf
+pymongo
 opencv-python
 tgcrypto
-numpy<2
+PyMuPDF
